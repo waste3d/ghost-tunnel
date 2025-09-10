@@ -24,7 +24,7 @@ func NewTunnelService(tunnelRepo domain.TunnelRepository) *TunnelService {
 
 func (s *TunnelService) CreateTunnel(ctx context.Context, req CreateTunnelRequest) (*domain.Tunnel, error) {
 	newTunnel := &domain.Tunnel{
-		ID:     domain.TunnelID(uuid.New().String()),
+		ID:     domain.TunnelID(uuid.New().String()), // Генерируем ID для нового туннеля
 		UserID: req.UserID,
 		Endpoints: []domain.Endpoint{
 			{
