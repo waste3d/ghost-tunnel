@@ -84,19 +84,29 @@ func (c *Client) Run(ctx context.Context, serverAddr string) error {
 func (c *Client) listenServer() {
 	for {
 		msg, err := c.stream.Recv()
-		if err == io.EOF {
-			log.Println("Server closed the connection.")
-			return
-		}
-
 		if err != nil {
-			log.Printf("Error receiving from server: %v", err)
+			if err == io.EOF {
+				log.Println("Server closed the connection.")
+			} else {
+				log.Printf("Error receiving from server: %v", err)
+			}
+
+			c.connMgr.mu.RLock()
+			for _, ch := range c.connMgr.connections {
+				close(ch)
+			}
+			c.connMgr.mu.RUnlock()
 			return
 		}
 
 		if newConn := msg.GetNewConnection(); newConn != nil {
+			dataChan := make(chan []byte, 100)
+			c.connMgr.mu.Lock()
+			c.connMgr.connections[newConn.GetConnectionId()] = dataChan
+			c.connMgr.mu.Unlock()
+
 			log.Printf("Received request for new connection: %s", newConn.GetConnectionId())
-			go c.handleConnection(newConn.GetConnectionId())
+			go c.handleConnection(newConn.GetConnectionId(), dataChan)
 		}
 
 		if data := msg.GetData(); data != nil {
@@ -112,7 +122,7 @@ func (c *Client) listenServer() {
 	}
 }
 
-func (c *Client) handleConnection(connectionID string) {
+func (c *Client) handleConnection(connectionID string, dataChan chan []byte) {
 	localConn, err := net.Dial("tcp", c.localAddr)
 	if err != nil {
 		log.Printf("Failed to connect to local address %s: %v", c.localAddr, err)
@@ -121,18 +131,8 @@ func (c *Client) handleConnection(connectionID string) {
 	defer localConn.Close()
 	log.Printf("Connection %s: established to local service %s", connectionID, c.localAddr)
 
-	dataChan := make(chan []byte)
-	c.connMgr.mu.Lock()
-	c.connMgr.connections[connectionID] = dataChan
-	c.connMgr.mu.Unlock()
-
-	defer func() {
-		c.connMgr.mu.Lock()
-		close(c.connMgr.connections[connectionID])
-		delete(c.connMgr.connections, connectionID)
-		c.connMgr.mu.Unlock()
-		log.Printf("Connection %s: cleaned up.", connectionID)
-	}()
+	defer close(dataChan)
+	log.Printf("Connection %s: established to local service %s", connectionID, c.localAddr)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
