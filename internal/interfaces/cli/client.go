@@ -6,22 +6,36 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 
 	"github.com/waste3d/ghost-tunnel/api"
 	"google.golang.org/grpc"
 )
+
+type connectionManager struct {
+	connections map[string]chan []byte
+	mu          sync.RWMutex
+}
+
+func newConnectionManager() *connectionManager {
+	return &connectionManager{
+		connections: make(map[string]chan []byte),
+	}
+}
 
 type Client struct {
 	grpcConn  *grpc.ClientConn
 	stream    api.TunnelService_EstablishTunnelClient
 	tunnelID  string
 	localAddr string
+	connMgr   *connectionManager
 }
 
 func NewClient(tunnelID, localAddr string) *Client {
 	return &Client{
 		tunnelID:  tunnelID,
 		localAddr: localAddr,
+		connMgr:   newConnectionManager(),
 	}
 }
 
@@ -84,30 +98,68 @@ func (c *Client) listenServer() {
 			log.Printf("Received request for new connection: %s", newConn.GetConnectionId())
 			go c.handleConnection(newConn.GetConnectionId())
 		}
-		// TODO: Обработать входящие данные (msg.GetData()) и перенаправить их
-		// в нужный локальный TCP сокет. Мы сделаем это в handleConnection.
+
+		if data := msg.GetData(); data != nil {
+			c.connMgr.mu.RLock()
+			ch, ok := c.connMgr.connections[data.GetConnectionId()]
+			c.connMgr.mu.RUnlock()
+			if ok {
+				ch <- data.GetChunk()
+			} else {
+				log.Printf("Received data for unknown connection ID: %s", data.GetConnectionId())
+			}
+		}
 	}
 }
 
 func (c *Client) handleConnection(connectionID string) {
 	localConn, err := net.Dial("tcp", c.localAddr)
 	if err != nil {
-		log.Printf("Failed to connect to local service at %s: %v", c.localAddr, err)
-		// TODO: сообщить серверу о неудачном соединении
+		log.Printf("Failed to connect to local address %s: %v", c.localAddr, err)
 		return
 	}
 	defer localConn.Close()
 	log.Printf("Connection %s: established to local service %s", connectionID, c.localAddr)
 
+	dataChan := make(chan []byte)
+	c.connMgr.mu.Lock()
+	c.connMgr.connections[connectionID] = dataChan
+	c.connMgr.mu.Unlock()
+
+	defer func() {
+		c.connMgr.mu.Lock()
+		close(c.connMgr.connections[connectionID])
+		delete(c.connMgr.connections, connectionID)
+		c.connMgr.mu.Unlock()
+		log.Printf("Connection %s: cleaned up.", connectionID)
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
 	go func() {
-		buf := make([]byte, 4096)
+		defer wg.Done()
+		defer localConn.Close()
+
+		for data := range dataChan {
+			if _, err := localConn.Write(data); err != nil {
+				log.Printf("Connection %s: error writing to local socket: %v", connectionID, err)
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		buf := make([]byte, 4*1024)
 		for {
 			n, err := localConn.Read(buf)
 			if err != nil {
 				if err != io.EOF {
 					log.Printf("Connection %s: error reading from local socket: %v", connectionID, err)
 				}
-				break
+				return
 			}
 
 			sendErr := c.stream.Send(&api.ClientToServer{
@@ -120,17 +172,10 @@ func (c *Client) handleConnection(connectionID string) {
 			})
 			if sendErr != nil {
 				log.Printf("Connection %s: error sending data to server: %v", connectionID, sendErr)
-				break
+				return
 			}
 		}
 	}()
 
-	// 3. В этой горутине мы будем читать данные от сервера и писать их
-	// в локальный сокет. (Этот код нужно будет доработать, когда listenServer
-	// начнет распределять Data сообщения). Пока это заглушка.
-
-	// TODO: Ждем пока соединение не закроется
-
-	<-c.stream.Context().Done()
-	log.Printf("Connection %s: closed", connectionID)
+	wg.Wait()
 }

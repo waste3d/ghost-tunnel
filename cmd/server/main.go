@@ -13,12 +13,13 @@ import (
 
 func main() {
 	sessionManager := tunnelgrpc.NewSessionManager()
+	connMgr := tunnelgrpc.NewConnectionManager()
 
-	go startGrpcServer(sessionManager)
-	startPublicServer(sessionManager)
+	go startGrpcServer(sessionManager, connMgr)
+	startPublicServer(sessionManager, connMgr)
 }
 
-func startGrpcServer(sm *tunnelgrpc.SessionManager) {
+func startGrpcServer(sm *tunnelgrpc.SessionManager, connMgr *tunnelgrpc.ConnectionManager) {
 	port := ":50051"
 	lis, err := net.Listen("tcp", port)
 	if err != nil {
@@ -26,7 +27,7 @@ func startGrpcServer(sm *tunnelgrpc.SessionManager) {
 	}
 
 	grpcServer := grpc.NewServer()
-	tunnelSrv := tunnelgrpc.NewTunnelServer(sm)
+	tunnelSrv := tunnelgrpc.NewTunnelServer(sm, connMgr)
 	api.RegisterTunnelServiceServer(grpcServer, tunnelSrv)
 
 	log.Printf("server listening at %s", lis.Addr())
@@ -35,7 +36,7 @@ func startGrpcServer(sm *tunnelgrpc.SessionManager) {
 	}
 }
 
-func startPublicServer(sm *tunnelgrpc.SessionManager) {
+func startPublicServer(sm *tunnelgrpc.SessionManager, connMgr *tunnelgrpc.ConnectionManager) {
 	publicPort := ":8000"
 	lis, err := net.Listen("tcp", publicPort)
 	if err != nil {
@@ -49,11 +50,11 @@ func startPublicServer(sm *tunnelgrpc.SessionManager) {
 			log.Printf("Public server: failed to accept connection: %v", err)
 			continue
 		}
-		go handlePublicConnection(conn, sm)
+		go handlePublicConnection(conn, sm, connMgr)
 	}
 }
 
-func handlePublicConnection(conn net.Conn, sm *tunnelgrpc.SessionManager) {
+func handlePublicConnection(conn net.Conn, sm *tunnelgrpc.SessionManager, connMgr *tunnelgrpc.ConnectionManager) {
 	defer conn.Close()
 	log.Printf("New public connection from %s", conn.RemoteAddr())
 
@@ -83,15 +84,39 @@ func handlePublicConnection(conn net.Conn, sm *tunnelgrpc.SessionManager) {
 		return
 	}
 
-	// Начинаем проксировать данные.
-	// TODO: Нам нужен способ получать Data-сообщения от клиента,
-	// которые относятся именно к этому connID. Пока просто читаем из publicConn
-	// и выбрасываем данные, чтобы соединение не висело.
-	log.Printf("Proxying data for connID: %s", connID)
+	dataChan := make(chan []byte)
+	connMgr.Add(connID, dataChan)
 
-	bytesCopied, err := io.Copy(io.Discard, conn)
-	if err != nil {
-		log.Printf("Error during proxying for connID %s: %v", connID, err)
+	go func() {
+		for data := range dataChan {
+			if _, err := conn.Write(data); err != nil {
+				log.Printf("Error writing data to public connection: %v", err)
+				return
+			}
+		}
+	}()
+
+	buf := make([]byte, 4*1024)
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("Error reading from public conn %s: %v", connID, err)
+			}
+			return // Выходим, когда соединение закрыто
+		}
+
+		sendErr := grpcStream.Send(&api.ServerToClient{
+			Message: &api.ServerToClient_Data{
+				Data: &api.Data{
+					ConnectionId: connID,
+					Chunk:        buf[:n],
+				},
+			},
+		})
+		if sendErr != nil {
+			log.Printf("Error sending data to client for conn %s: %v", connID, sendErr)
+			return
+		}
 	}
-	log.Printf("Copied %d bytes for connID %s", bytesCopied, connID)
 }

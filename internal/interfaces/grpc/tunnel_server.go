@@ -1,6 +1,7 @@
 package tunnelgrpc
 
 import (
+	"io"
 	"log"
 	"sync"
 
@@ -39,14 +40,43 @@ func (sm *SessionManager) Remove(tunnelID string) {
 	delete(sm.sessions, tunnelID)
 }
 
-type TunnelServer struct {
-	api.UnimplementedTunnelServiceServer
-	sm *SessionManager
+type ConnectionManager struct {
+	channels map[string]chan []byte
+	mu       sync.RWMutex
 }
 
-func NewTunnelServer(sessionManager *SessionManager) *TunnelServer {
+func NewConnectionManager() *ConnectionManager {
+	return &ConnectionManager{
+		channels: make(map[string]chan []byte),
+	}
+}
+
+func (cm *ConnectionManager) Add(connID string, ch chan []byte) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.channels[connID] = ch
+}
+
+func (cm *ConnectionManager) Remove(connID string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	ch, ok := cm.channels[connID]
+	if ok {
+		close(ch)
+		delete(cm.channels, connID)
+	}
+}
+
+type TunnelServer struct {
+	api.UnimplementedTunnelServiceServer
+	sm      *SessionManager
+	connMgr *ConnectionManager
+}
+
+func NewTunnelServer(sessionManager *SessionManager, connMgr *ConnectionManager) *TunnelServer {
 	return &TunnelServer{
-		sm: sessionManager,
+		sm:      sessionManager,
+		connMgr: connMgr,
 	}
 }
 
@@ -71,18 +101,25 @@ func (s *TunnelServer) EstablishTunnel(stream api.TunnelService_EstablishTunnelS
 	s.sm.Add(tunnelID, stream)
 	defer s.sm.Remove(tunnelID)
 
-	ctx := stream.Context()
-
 	for {
-		select {
-		case <-ctx.Done():
-			log.Printf("Client for tunnel %s disconnected.", tunnelID)
-			return ctx.Err()
-		default:
-			// В этой версии мы не ждем сообщений от клиента после регистрации,
-			// а только слушаем отключение. Позже сюда добавится обработка Data сообщений.
-			// Чтобы не грузить CPU, можно добавить небольшую паузу или использовать
-			// более сложный механизм с каналами.
+		msg, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF || status.Code(err) == codes.Canceled {
+				log.Printf("Client for tunnel %s disconnected.", tunnelID)
+				return nil
+			}
+			log.Printf("Error receiving from client tunnel %s: %v", tunnelID, err)
+			return err
+		}
+
+		if data := msg.GetData(); data != nil {
+			s.connMgr.mu.RLock()
+			ch, ok := s.connMgr.channels[data.GetConnectionId()]
+			s.connMgr.mu.RUnlock()
+
+			if ok {
+				ch <- data.GetChunk()
+			}
 		}
 	}
 }
