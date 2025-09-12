@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package tunnel;
+
+option go_package = "github.com/waste3d/ghost-tunnel/api";
+
+service TunnelService {
+    rpc EstablishTunnel(stream ClientToServer) returns (stream ServerToClient);
+}
+
+message ClientToServer {
+    oneof message {
+        Register register = 1;
+        Data data = 2;
+    }
+}
+
+message ServerToClient {
+    oneof message {
+        NewConnection new_connection = 1;
+        Data data = 2;
+    }
+}
+
+
+message Register {
+    string tunnel_id = 1;
+    // в дальнейшем добавляем api key для аутентификации
+    // string api_key = 2;
+}
+
+message NewConnection {
+    string connection_id = 1;
+}
+
+message Data {
+    string connection_id = 1;
+
+    // данные - чанки
+    bytes chunk = 2;
+}
