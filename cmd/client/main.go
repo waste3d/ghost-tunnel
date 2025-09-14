@@ -5,6 +5,6 @@ import (
 )
 
 func main() {
-	// Просто вызываем Execute нашей корневой команды
+
 	cli.Execute()
 }

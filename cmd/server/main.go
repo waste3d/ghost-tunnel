@@ -1,17 +1,34 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log"
 	"net"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/waste3d/ghost-tunnel/api"
 	tunnelgrpc "github.com/waste3d/ghost-tunnel/internal/interfaces/grpc"
 	"google.golang.org/grpc"
 )
 
 func main() {
+
+	connStr := "postgres://postgres:postgres@localhost:5432/ghost_tunnel?sslmode=disable"
+
+	ctx := context.Background()
+
+	dbpool, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		log.Fatalf("Failed to create pool: %v", err)
+	}
+	defer dbpool.Close()
+
+	if err := dbpool.Ping(ctx); err != nil {
+		log.Fatalf("Failed to ping pool: %v", err)
+	}
+
 	sessionManager := tunnelgrpc.NewSessionManager()
 	connMgr := tunnelgrpc.NewConnectionManager()
 

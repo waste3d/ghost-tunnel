@@ -1,0 +1,9 @@
+driver: postgres
+
+dsn: "user=postgres password=postgres dbname=ghost_tunnel host=localhost port=5432 sslmode=disable"
+
+migration_dir: "db/migrations"
+
+table_name: "goose_db_version"
+
+verbose: true
