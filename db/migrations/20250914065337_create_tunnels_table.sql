@@ -2,7 +2,7 @@
 -- +goose StatementBegin
 create table tunnels (
     id UUID PRIMARY KEY,
-    user_id UUID,
+    user_id UUID NULL,
     subdomain VARCHAR(63) UNIQUE NOT NULL,
     local_host VARCHAR(255) NOT NULL,
     local_port INT NOT NULL,

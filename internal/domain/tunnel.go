@@ -26,7 +26,7 @@ const (
 type Tunnel struct {
 	ID          TunnelID
 	UserID      UserID
-	Endpoints   []Endpoint
+	Endpoints   Endpoint
 	LocalTarget LocalTarget
 	Status      TunnelStatus
 	CreatedAt   time.Time

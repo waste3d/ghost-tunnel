@@ -57,14 +57,11 @@ func (cm *ConnectionManager) Add(connID string, ch chan []byte) {
 	cm.channels[connID] = ch
 }
 
+// *** ИСПРАВЛЕННАЯ ФУНКЦИЯ ***
 func (cm *ConnectionManager) Remove(connID string) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	ch, ok := cm.channels[connID]
-	if ok {
-		close(ch)
-		delete(cm.channels, connID)
-	}
+	delete(cm.channels, connID)
 }
 
 type TunnelServer struct {
@@ -82,41 +79,30 @@ func NewTunnelServer(sessionManager *SessionManager, connMgr *ConnectionManager)
 
 func (s *TunnelServer) EstablishTunnel(stream api.TunnelService_EstablishTunnelServer) error {
 	log.Println("Client connected")
-
 	msg, err := stream.Recv()
 	if err != nil {
-		log.Println("Error receiving message:", err)
 		return err
 	}
-
 	reg := msg.GetRegister()
 	if reg == nil {
-		log.Println("First message was not Register. Disconnecting client.")
 		return status.Errorf(codes.InvalidArgument, "first message must be a Register message")
 	}
-
 	tunnelID := reg.GetTunnelId()
 	log.Printf("Client registered for tunnel ID: %s", tunnelID)
-
 	s.sm.Add(tunnelID, stream)
 	defer s.sm.Remove(tunnelID)
-
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
 			if err == io.EOF || status.Code(err) == codes.Canceled {
-				log.Printf("Client for tunnel %s disconnected.", tunnelID)
 				return nil
 			}
-			log.Printf("Error receiving from client tunnel %s: %v", tunnelID, err)
 			return err
 		}
-
 		if data := msg.GetData(); data != nil {
 			s.connMgr.mu.RLock()
 			ch, ok := s.connMgr.channels[data.GetConnectionId()]
 			s.connMgr.mu.RUnlock()
-
 			if ok {
 				ch <- data.GetChunk()
 			}
