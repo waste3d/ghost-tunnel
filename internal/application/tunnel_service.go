@@ -53,3 +53,7 @@ func (s *TunnelService) CreateTunnel(ctx context.Context, req CreateTunnelReques
 
 	return newTunnel, nil
 }
+
+func (s *TunnelService) DeleteTunnel(ctx context.Context, subdomain string) error {
+	return s.tunnelRepo.Delete(ctx, subdomain)
+}

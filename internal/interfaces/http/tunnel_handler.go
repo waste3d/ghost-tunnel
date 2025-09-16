@@ -17,6 +17,7 @@ func NewTunnelHandler(tunnelService *application.TunnelService) *TunnelHandler {
 
 func (h *TunnelHandler) RegisterRoutes(router *gin.Engine) {
 	router.POST("/tunnels", h.CreateTunnel)
+	router.DELETE("/tunnels/:subdomain", h.DeleteTunnel)
 }
 
 func (h *TunnelHandler) CreateTunnel(c *gin.Context) {
@@ -33,4 +34,20 @@ func (h *TunnelHandler) CreateTunnel(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, tunnel)
+}
+
+func (h *TunnelHandler) DeleteTunnel(c *gin.Context) {
+	subdomain := c.Param("subdomain")
+	if subdomain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "subdomain is required"})
+		return
+	}
+
+	err := h.tunnelService.DeleteTunnel(c.Request.Context(), subdomain)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Tunnel deleted successfully"})
 }

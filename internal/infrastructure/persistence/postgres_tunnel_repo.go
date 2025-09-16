@@ -91,6 +91,11 @@ func (r *PostgresTunnelRepository) FindByID(ctx context.Context, id domain.Tunne
 	return nil, errors.New("not implemented")
 }
 
-func (r *PostgresTunnelRepository) Delete(ctx context.Context, id domain.TunnelID) error {
-	return errors.New("not implemented")
+func (r *PostgresTunnelRepository) Delete(ctx context.Context, subdomain string) error {
+	query := `DELETE FROM tunnels WHERE subdomain = $1`
+	_, err := r.db.Exec(ctx, query, subdomain)
+	if err != nil {
+		return fmt.Errorf("could not delete tunnel: %w", err)
+	}
+	return nil
 }
