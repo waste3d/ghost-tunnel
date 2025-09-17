@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -188,22 +189,18 @@ func handlePublicConnection(publicConn net.Conn, sm *tunnelgrpc.SessionManager, 
 	reader := bufio.NewReader(publicConn)
 	req, err := http.ReadRequest(reader)
 	if err != nil {
-		log.Printf("Could not parse incoming request as HTTP: %v", err)
 		return
 	}
-
 	subdomain := strings.Split(req.Host, ".")[0]
 	log.Printf("New public connection for subdomain '%s' from %s", subdomain, publicConn.RemoteAddr())
 
 	tunnel, err := tunnelRepo.FindBySubdomain(context.Background(), subdomain)
 	if err != nil || tunnel == nil {
-		log.Printf("No tunnel found for subdomain '%s'.", subdomain)
 		return
 	}
 
 	grpcStream, ok := sm.Get(string(tunnel.ID))
 	if !ok {
-		log.Printf("Tunnel for subdomain '%s' exists, but no client connected.", subdomain)
 		return
 	}
 
@@ -223,56 +220,50 @@ func handlePublicConnection(publicConn net.Conn, sm *tunnelgrpc.SessionManager, 
 
 	log.Printf("Connection %s: starting bidirectional proxy for subdomain '%s'", connID, subdomain)
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-
 	go func() {
-		defer wg.Done()
-		defer publicConn.Close()
 		for data := range dataChan {
+			if data == nil {
+				publicConn.Close()
+				return
+			}
 			if _, err := publicConn.Write(data); err != nil {
 				return
 			}
 		}
 	}()
 
-	go func() {
-		defer wg.Done()
+	rawRequest, _ := httputil.DumpRequest(req, true)
+	err = grpcStream.Send(&api.ServerToClient{
+		Message: &api.ServerToClient_Data{
+			Data: &api.Data{ConnectionId: connID, Chunk: rawRequest},
+		},
+	})
+	if err != nil {
+		return
+	}
 
-		rawRequest, err := httputil.DumpRequest(req, true)
-		if err != nil {
-			close(dataChan)
-			return
-		}
+	_, err = io.Copy(&StreamWriter{stream: grpcStream, connID: connID}, reader)
+	if err != nil {
+		close(dataChan)
+	}
+}
 
-		err = grpcStream.Send(&api.ServerToClient{
-			Message: &api.ServerToClient_Data{
-				Data: &api.Data{ConnectionId: connID, Chunk: rawRequest},
+type StreamWriter struct {
+	stream api.TunnelService_EstablishTunnelServer
+	connID string
+}
+
+func (w *StreamWriter) Write(p []byte) (n int, err error) {
+	err = w.stream.Send(&api.ServerToClient{
+		Message: &api.ServerToClient_Data{
+			Data: &api.Data{
+				ConnectionId: w.connID,
+				Chunk:        p,
 			},
-		})
-		if err != nil {
-			close(dataChan)
-			return
-		}
-
-		buf := make([]byte, 4*1024)
-		for {
-			n, err := publicConn.Read(buf)
-			if err != nil {
-				close(dataChan)
-				return
-			}
-			sendErr := grpcStream.Send(&api.ServerToClient{
-				Message: &api.ServerToClient_Data{
-					Data: &api.Data{ConnectionId: connID, Chunk: buf[:n]},
-				},
-			})
-			if sendErr != nil {
-				return
-			}
-		}
-	}()
-
-	wg.Wait()
-	log.Printf("Connection %s: proxy finished.", connID)
+		},
+	})
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }

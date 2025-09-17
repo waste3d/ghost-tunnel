@@ -108,9 +108,7 @@ func (c *Client) listenServer() {
 	}
 }
 
-// *** ИСПРАВЛЕННАЯ ФУНКЦИЯ ***
 func (c *Client) handleConnection(connectionID string, dataChan chan []byte) {
-	// Этот defer теперь только удаляет канал из карты, но НЕ закрывает его.
 	defer func() {
 		c.connMgr.mu.Lock()
 		delete(c.connMgr.connections, connectionID)
@@ -121,46 +119,61 @@ func (c *Client) handleConnection(connectionID string, dataChan chan []byte) {
 	localConn, err := net.Dial("tcp", c.localAddr)
 	if err != nil {
 		log.Printf("Failed to connect to local service at %s: %v", c.localAddr, err)
-		close(dataChan) // Если не смогли подключиться, надо закрыть канал, чтобы сервер не завис
+		_ = c.stream.Send(&api.ClientToServer{
+			Message: &api.ClientToServer_Data{
+				Data: &api.Data{ConnectionId: connectionID, Chunk: nil},
+			},
+		})
 		return
 	}
 	defer localConn.Close()
 	log.Printf("Connection %s: established to local service %s", connectionID, c.localAddr)
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	// Создаем "писателя" для нашего gRPC стрима
+	grpcWriter := &StreamWriter{stream: c.stream, connID: connectionID}
 
+	// Горутина 1: копируем данные из локального сокета в gRPC
 	go func() {
-		defer wg.Done()
-		defer localConn.Close()
-		for data := range dataChan {
-			if _, err := localConn.Write(data); err != nil {
-				return
-			}
-		}
+		io.Copy(grpcWriter, localConn)
+		// Когда localConn закрывается, io.Copy завершается.
+		// Мы должны закрыть запись в gRPC стрим, чтобы сервер знал об этом.
+		// gRPC делает это неявно, но для надежности можно отправить "закрывающее" сообщение.
+		_ = c.stream.Send(&api.ClientToServer{
+			Message: &api.ClientToServer_Data{
+				Data: &api.Data{ConnectionId: connectionID, Chunk: nil},
+			},
+		})
 	}()
 
-	go func() {
-		defer wg.Done()
-		buf := make([]byte, 4*1024)
-		for {
-			n, err := localConn.Read(buf)
-			if err != nil {
-				close(dataChan)
-				return
-			}
-			sendErr := c.stream.Send(&api.ClientToServer{
-				Message: &api.ClientToServer_Data{
-					Data: &api.Data{
-						ConnectionId: connectionID,
-						Chunk:        buf[:n],
-					},
-				},
-			})
-			if sendErr != nil {
-				return
-			}
+	// Горутина 2: копируем данные из gRPC (через канал) в локальный сокет
+	for data := range dataChan {
+		if data == nil { // Это наш сигнал о закрытии с той стороны
+			return
 		}
-	}()
-	wg.Wait()
+		if _, err := localConn.Write(data); err != nil {
+			return
+		}
+	}
+}
+
+// ▼▼▼ ДОБАВЬТЕ ЭТУ СТРУКТУРУ-ХЕЛПЕР В КОНЕЦ ФАЙЛА ▼▼▼
+// StreamWriter позволяет использовать gRPC стрим как io.Writer
+type StreamWriter struct {
+	stream api.TunnelService_EstablishTunnelClient
+	connID string
+}
+
+func (w *StreamWriter) Write(p []byte) (n int, err error) {
+	err = w.stream.Send(&api.ClientToServer{
+		Message: &api.ClientToServer_Data{
+			Data: &api.Data{
+				ConnectionId: w.connID,
+				Chunk:        p,
+			},
+		},
+	})
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }

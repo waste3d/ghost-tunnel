@@ -36,7 +36,7 @@ func (s *TunnelService) CreateTunnel(ctx context.Context, req CreateTunnelReques
 		UserID: req.UserID,
 		Endpoints: domain.Endpoint{
 			Subdomain: req.Subdomain,
-			Domain:    "waste3d.ru",
+			Domain:    "gtunnel.ru",
 			Port:      80,
 		},
 		LocalTarget: domain.LocalTarget{
