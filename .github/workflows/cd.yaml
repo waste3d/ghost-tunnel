@@ -38,7 +38,6 @@ jobs:
         key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
         script: |
           cd ${{ secrets.VPS_PROJECT_PATH }}
-          goose up
           if pgrep -f "ghost-tunnel-server"; then
             pkill -f "ghost-tunnel-server"
           fi
