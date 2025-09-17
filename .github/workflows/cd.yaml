@@ -43,7 +43,6 @@ jobs:
           if pgrep -f "ghost-tunnel-server"; then
             echo "Stopping existing server..."
             pkill -f "ghost-tunnel-server"
-              # Ждем немного, чтобы порты точно освободились
             sleep 2
           fi
             
