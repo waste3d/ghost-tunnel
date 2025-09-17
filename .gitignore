@@ -1,2 +1,5 @@
 .env
 config.*
+ghost-tunnel-server
+goose.yaml
+goose.yml

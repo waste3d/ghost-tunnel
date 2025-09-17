@@ -18,6 +18,7 @@ func NewTunnelHandler(tunnelService *application.TunnelService) *TunnelHandler {
 func (h *TunnelHandler) RegisterRoutes(router *gin.Engine) {
 	router.POST("/tunnels", h.CreateTunnel)
 	router.DELETE("/tunnels/:subdomain", h.DeleteTunnel)
+	router.GET("/health", h.HealthCheck)
 }
 
 func (h *TunnelHandler) CreateTunnel(c *gin.Context) {
@@ -50,4 +51,8 @@ func (h *TunnelHandler) DeleteTunnel(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Tunnel deleted successfully"})
+}
+
+func (h *TunnelHandler) HealthCheck(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"message": "OK"})
 }
