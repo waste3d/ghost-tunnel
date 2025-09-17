@@ -33,19 +33,20 @@ jobs:
     - name: Restart application on VPS
       uses: appleboy/ssh-action@master
       with:
-        host: ${{ secrets.VPS_SSH_HOST }}
-        username: ${{ secrets.VPS_SSH_USER }}
-        key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
-        script: |
-          cd ${{ secrets.VPS_PROJECT_PATH }}
+          host: ${{ secrets.VPS_SSH_HOST }}
+          username: ${{ secrets.VPS_SSH_USER }}
+          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          script: |
+            cd ${{ secrets.VPS_PROJECT_PATH }}
             
-          if pgrep -f "ghost-tunnel-server"; then
-            echo "Stopping existing server..."
-            pkill -f "ghost-tunnel-server"
-            sleep 2
-          fi
+            PID=$(pgrep -f "^./ghost-tunnel-server$")
+            if [ -n "$PID" ]; then
+              echo "Stopping existing server..."
+              kill $PID
+              sleep 2
+            fi
             
-          echo "Starting new server in background..."
-          nohup ./ghost-tunnel-server > nohup.out 2>&1 &
+            echo "Starting new server in background..."
+            nohup ./ghost-tunnel-server > nohup.out 2>&1 &
             
-          echo "Deployment script finished."
+            echo "Deployment script finished."
