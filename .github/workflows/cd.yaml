@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - 'v*.*.*' 
-      - 'fix(cd): *'
+    
 
 jobs:
   deploy:
@@ -39,7 +39,15 @@ jobs:
         key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
         script: |
           cd ${{ secrets.VPS_PROJECT_PATH }}
+            
           if pgrep -f "ghost-tunnel-server"; then
+            echo "Stopping existing server..."
             pkill -f "ghost-tunnel-server"
+              # Ждем немного, чтобы порты точно освободились
+            sleep 2
           fi
-          nohup ./ghost-tunnel-server &
+            
+          echo "Starting new server in background..."
+          nohup ./ghost-tunnel-server > nohup.out 2>&1 &
+            
+          echo "Deployment script finished."
