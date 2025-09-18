@@ -129,15 +129,10 @@ func (c *Client) handleConnection(connectionID string, dataChan chan []byte) {
 	defer localConn.Close()
 	log.Printf("Connection %s: established to local service %s", connectionID, c.localAddr)
 
-	// Создаем "писателя" для нашего gRPC стрима
 	grpcWriter := &StreamWriter{stream: c.stream, connID: connectionID}
 
-	// Горутина 1: копируем данные из локального сокета в gRPC
 	go func() {
 		io.Copy(grpcWriter, localConn)
-		// Когда localConn закрывается, io.Copy завершается.
-		// Мы должны закрыть запись в gRPC стрим, чтобы сервер знал об этом.
-		// gRPC делает это неявно, но для надежности можно отправить "закрывающее" сообщение.
 		_ = c.stream.Send(&api.ClientToServer{
 			Message: &api.ClientToServer_Data{
 				Data: &api.Data{ConnectionId: connectionID, Chunk: nil},
@@ -145,9 +140,8 @@ func (c *Client) handleConnection(connectionID string, dataChan chan []byte) {
 		})
 	}()
 
-	// Горутина 2: копируем данные из gRPC (через канал) в локальный сокет
 	for data := range dataChan {
-		if data == nil { // Это наш сигнал о закрытии с той стороны
+		if data == nil {
 			return
 		}
 		if _, err := localConn.Write(data); err != nil {
@@ -156,8 +150,6 @@ func (c *Client) handleConnection(connectionID string, dataChan chan []byte) {
 	}
 }
 
-// ▼▼▼ ДОБАВЬТЕ ЭТУ СТРУКТУРУ-ХЕЛПЕР В КОНЕЦ ФАЙЛА ▼▼▼
-// StreamWriter позволяет использовать gRPC стрим как io.Writer
 type StreamWriter struct {
 	stream api.TunnelService_EstablishTunnelClient
 	connID string

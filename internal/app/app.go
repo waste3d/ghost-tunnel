@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -191,9 +190,8 @@ func handlePublicConnection(publicConn net.Conn, sm *tunnelgrpc.SessionManager, 
 	if err != nil {
 		return
 	}
-	subdomain := strings.Split(req.Host, ".")[0]
-	log.Printf("New public connection for subdomain '%s' from %s", subdomain, publicConn.RemoteAddr())
 
+	subdomain := strings.Split(req.Host, ".")[0]
 	tunnel, err := tunnelRepo.FindBySubdomain(context.Background(), subdomain)
 	if err != nil || tunnel == nil {
 		return
@@ -218,34 +216,65 @@ func handlePublicConnection(publicConn net.Conn, sm *tunnelgrpc.SessionManager, 
 	connMgr.Add(connID, dataChan)
 	defer connMgr.Remove(connID)
 
-	log.Printf("Connection %s: starting bidirectional proxy for subdomain '%s'", connID, subdomain)
+	log.Printf("Connection %s: starting proxy for '%s'", connID, subdomain)
 
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Горутина 1: gRPC -> publicConn (ответ браузеру)
 	go func() {
+		defer wg.Done()
+		defer publicConn.Close()
 		for data := range dataChan {
-			if data == nil {
-				publicConn.Close()
-				return
-			}
 			if _, err := publicConn.Write(data); err != nil {
 				return
 			}
 		}
 	}()
 
-	rawRequest, _ := httputil.DumpRequest(req, true)
-	err = grpcStream.Send(&api.ServerToClient{
-		Message: &api.ServerToClient_Data{
-			Data: &api.Data{ConnectionId: connID, Chunk: rawRequest},
-		},
-	})
-	if err != nil {
-		return
-	}
+	// Горутина 2: publicConn -> gRPC (запрос от браузера)
+	go func() {
+		defer wg.Done()
 
-	_, err = io.Copy(&StreamWriter{stream: grpcStream, connID: connID}, reader)
-	if err != nil {
-		close(dataChan)
-	}
+		req.Header.Set("Connection", "close")
+		req.Close = true
+		rawRequest, _ := httputil.DumpRequest(req, true)
+		err := grpcStream.Send(&api.ServerToClient{
+			Message: &api.ServerToClient_Data{
+				Data: &api.Data{ConnectionId: connID, Chunk: rawRequest},
+			},
+		})
+		if err != nil {
+			close(dataChan)
+			return
+		}
+
+		// Этот цикл теперь с таймаутом
+		for {
+			// Устанавливаем дедлайн на чтение. Если за 2 секунды ничего не придет, Read вернет ошибку.
+			publicConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			buf := make([]byte, 4*1024)
+			n, err := publicConn.Read(buf)
+			if err != nil {
+				// Таймаут или другая ошибка - сигнал к завершению.
+				close(dataChan)
+				return
+			}
+			// Если данные пришли, сбрасываем таймаут и отправляем их.
+			publicConn.SetReadDeadline(time.Time{})
+			sendErr := grpcStream.Send(&api.ServerToClient{
+				Message: &api.ServerToClient_Data{
+					Data: &api.Data{ConnectionId: connID, Chunk: buf[:n]},
+				},
+			})
+			if sendErr != nil {
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+	log.Printf("Connection %s: proxy finished.", connID)
 }
 
 type StreamWriter struct {
