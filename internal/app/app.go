@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -160,7 +161,15 @@ func initGrpcServer(sm *tunnelgrpc.SessionManager, connMgr *tunnelgrpc.Connectio
 
 func initApiServer(tunnelHandler *http_handlers.TunnelHandler) *http.Server {
 	router := gin.Default()
+
+	config := cors.DefaultConfig()
+	config.AllowOrigins = []string{"http://localhost:4321", "https://gtunnel.ru"}
+	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+
+	router.Use(cors.New(config))
+
 	tunnelHandler.RegisterRoutes(router)
+
 	return &http.Server{
 		Addr:    ":8081",
 		Handler: router,

@@ -16,9 +16,10 @@ func NewTunnelHandler(tunnelService *application.TunnelService) *TunnelHandler {
 }
 
 func (h *TunnelHandler) RegisterRoutes(router *gin.Engine) {
+
 	router.POST("/tunnels", h.CreateTunnel)
 	router.DELETE("/tunnels/:subdomain", h.DeleteTunnel)
-	router.GET("/health", h.HealthCheck)
+	router.GET("/healthz", h.HealthCheck)
 }
 
 func (h *TunnelHandler) CreateTunnel(c *gin.Context) {
