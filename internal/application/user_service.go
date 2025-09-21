@@ -2,16 +2,9 @@ package application
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/waste3d/ghost-tunnel/internal/domain"
-)
-
-var (
-	ErrUserAlreadyExists  = errors.New("user with this email already exists")
-	ErrInvalidCredentials = errors.New("invalid email or password")
-	ErrPasswordMismatch   = errors.New("password and confirm password do not match")
 )
 
 type UserService struct {
@@ -35,11 +28,11 @@ func (s *UserService) Register(ctx context.Context, req RegisterRequest) (*domai
 		return nil, fmt.Errorf("failed to find user by email: %w", err)
 	}
 	if existingUser != nil {
-		return nil, ErrUserAlreadyExists
+		return nil, domain.ErrUserAlreadyExists
 	}
 
 	if req.Password != req.ConfirmPassword {
-		return nil, ErrPasswordMismatch
+		return nil, domain.ErrPasswordMismatch
 	}
 
 	newUser, err := domain.NewUser(req.Email, req.Password)
@@ -67,11 +60,11 @@ func (s *UserService) Login(ctx context.Context, req LoginRequest) (*domain.User
 		return nil, fmt.Errorf("failed to find user by email: %w", err)
 	}
 	if user == nil {
-		return nil, ErrInvalidCredentials
+		return nil, domain.ErrInvalidCredentials
 	}
 
 	if !user.VerifyPassword(req.Password) {
-		return nil, ErrInvalidCredentials
+		return nil, domain.ErrInvalidCredentials
 	}
 
 	return user, nil

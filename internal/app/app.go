@@ -52,10 +52,13 @@ func New(ctx context.Context) (*App, error) {
 	tunnelRepo := persistence.NewPostgresTunnelRepository(dbPool)
 	tunnelService := application.NewTunnelService(tunnelRepo)
 	tunnelHandler := http_handlers.NewTunnelHandler(tunnelService)
+	userRepo := persistence.NewPostgresUserRepository(dbPool)
+	userService := application.NewUserService(userRepo)
+	userHandler := http_handlers.NewUserHandler(userService)
 
 	// Инициализация серверов
 	grpcServer := initGrpcServer(sessionManager, connManager)
-	apiServer := initApiServer(tunnelHandler)
+	apiServer := initApiServer(tunnelHandler, userHandler)
 	publicServer, err := net.Listen("tcp", ":8000")
 	if err != nil {
 		log.Fatalf("Failed to listen on port 8000: %v", err)
@@ -159,7 +162,7 @@ func initGrpcServer(sm *tunnelgrpc.SessionManager, connMgr *tunnelgrpc.Connectio
 	return grpcServer
 }
 
-func initApiServer(tunnelHandler *http_handlers.TunnelHandler) *http.Server {
+func initApiServer(tunnelHandler *http_handlers.TunnelHandler, userHandler *http_handlers.UserHandler) *http.Server {
 	router := gin.Default()
 
 	config := cors.DefaultConfig()
@@ -169,6 +172,7 @@ func initApiServer(tunnelHandler *http_handlers.TunnelHandler) *http.Server {
 	router.Use(cors.New(config))
 
 	tunnelHandler.RegisterRoutes(router)
+	userHandler.RegisterRoutes(router)
 
 	return &http.Server{
 		Addr:    ":8081",
