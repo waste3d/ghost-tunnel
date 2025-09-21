@@ -18,8 +18,8 @@ func NewUserHandler(userService *application.UserService) *UserHandler {
 }
 
 func (h *UserHandler) RegisterRoutes(router *gin.Engine) {
-	router.POST("/users/register", h.Register)
-	router.POST("/users/login", h.Login)
+	router.POST("/register", h.Register)
+	router.POST("/login", h.Login)
 }
 
 func (h *UserHandler) Register(c *gin.Context) {

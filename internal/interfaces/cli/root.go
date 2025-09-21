@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var rootCmd = &cobra.Command{
@@ -21,5 +22,23 @@ func Execute() {
 }
 
 func init() {
+
+	cobra.OnInitialize(initConfig)
+
 	rootCmd.AddCommand(newConnectCmd())
+	rootCmd.AddCommand(newLoginCmd())
+	rootCmd.AddCommand(newHttpCmd())
+
+	newConnectCmd().Hidden = true
+}
+
+func initConfig() {
+	home, err := os.UserHomeDir()
+	cobra.CheckErr(err)
+
+	viper.AddConfigPath(fmt.Sprintf("%s/.config/ghost-tunnel", home))
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+
+	viper.ReadInConfig()
 }

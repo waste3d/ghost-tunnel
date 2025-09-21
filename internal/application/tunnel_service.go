@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -18,22 +20,31 @@ type CreateTunnelRequest struct {
 
 type TunnelService struct {
 	tunnelRepo domain.TunnelRepository // Зависимость от ИНТЕРФЕЙСА
+	userRepo   domain.UserRepository
 }
 
 // *** ИСПРАВЛЕННАЯ СИГНАТУРА КОНСТРУКТОРА ***
 // Теперь он принимает ИНТЕРФЕЙС, а не конкретную структуру.
-func NewTunnelService(tunnelRepo domain.TunnelRepository) *TunnelService {
-	return &TunnelService{tunnelRepo: tunnelRepo}
+func NewTunnelService(tunnelRepo domain.TunnelRepository, userRepo domain.UserRepository) *TunnelService {
+	return &TunnelService{tunnelRepo: tunnelRepo, userRepo: userRepo}
+}
+
+func (s *TunnelService) GetUserRepository() domain.UserRepository {
+	return s.userRepo
 }
 
 func (s *TunnelService) CreateTunnel(ctx context.Context, req CreateTunnelRequest) (*domain.Tunnel, error) {
 	if req.Subdomain == "" {
-		req.Subdomain = fmt.Sprintf("random-%d", time.Now().UnixNano()%10000)
+		randomBytes := make([]byte, 5)
+		if _, err := rand.Read(randomBytes); err != nil {
+			return nil, fmt.Errorf("failed to generate random subdomain: %w", err)
+		}
+		req.Subdomain = hex.EncodeToString(randomBytes)
 	}
 
 	newTunnel := &domain.Tunnel{
 		ID:     domain.TunnelID(uuid.New().String()),
-		UserID: req.UserID,
+		UserID: "",
 		Endpoints: domain.Endpoint{
 			Subdomain: req.Subdomain,
 			Domain:    "gtunnel.ru",
@@ -46,6 +57,8 @@ func (s *TunnelService) CreateTunnel(ctx context.Context, req CreateTunnelReques
 		Status:    domain.StatusInactive,
 		CreatedAt: time.Now(),
 	}
+
+	newTunnel.UserID = req.UserID
 
 	if err := s.tunnelRepo.Save(ctx, newTunnel); err != nil {
 		return nil, fmt.Errorf("failed to create tunnel: %w", err)

@@ -29,7 +29,8 @@ func (r *PostgresTunnelRepository) Save(ctx context.Context, tunnel *domain.Tunn
 		INSERT INTO tunnels (id, user_id, subdomain, local_host, local_port, status, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
-	var userID interface{}
+
+	var userID any
 	if tunnel.UserID != "" {
 		userID = tunnel.UserID
 	} else {

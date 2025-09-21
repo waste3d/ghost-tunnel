@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/waste3d/ghost-tunnel/internal/application"
+	"github.com/waste3d/ghost-tunnel/internal/interfaces/http/middlewares"
 )
 
 type TunnelHandler struct {
@@ -17,8 +18,15 @@ func NewTunnelHandler(tunnelService *application.TunnelService) *TunnelHandler {
 
 func (h *TunnelHandler) RegisterRoutes(router *gin.Engine) {
 
-	router.POST("/tunnels", h.CreateTunnel)
-	router.DELETE("/tunnels/:subdomain", h.DeleteTunnel)
+	private := router.Group("/")
+	private.Use(middlewares.AuthMiddleware(h.tunnelService.GetUserRepository()))
+
+	{
+		// Регистрируем приватные маршруты в этой группе
+		private.POST("/tunnels", h.CreateTunnel)
+		private.DELETE("/tunnels/:subdomain", h.DeleteTunnel)
+	}
+
 	router.GET("/healthz", h.HealthCheck)
 }
 
@@ -28,6 +36,14 @@ func (h *TunnelHandler) CreateTunnel(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	user, exists := middlewares.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	req.UserID = user.ID
 
 	tunnel, err := h.tunnelService.CreateTunnel(c.Request.Context(), req)
 	if err != nil {

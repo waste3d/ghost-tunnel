@@ -50,9 +50,9 @@ func New(ctx context.Context) (*App, error) {
 	sessionManager := tunnelgrpc.NewSessionManager()
 	connManager := tunnelgrpc.NewConnectionManager()
 	tunnelRepo := persistence.NewPostgresTunnelRepository(dbPool)
-	tunnelService := application.NewTunnelService(tunnelRepo)
-	tunnelHandler := http_handlers.NewTunnelHandler(tunnelService)
 	userRepo := persistence.NewPostgresUserRepository(dbPool)
+	tunnelService := application.NewTunnelService(tunnelRepo, userRepo)
+	tunnelHandler := http_handlers.NewTunnelHandler(tunnelService)
 	userService := application.NewUserService(userRepo)
 	userHandler := http_handlers.NewUserHandler(userService)
 
