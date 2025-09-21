@@ -3,7 +3,6 @@ package domain
 import "time"
 
 type TunnelID string
-type UserID string
 
 type Endpoint struct {
 	Subdomain string
