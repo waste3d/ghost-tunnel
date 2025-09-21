@@ -54,3 +54,25 @@ func (s *UserService) Register(ctx context.Context, req RegisterRequest) (*domai
 	return newUser, nil
 
 }
+
+// DTO для авторизации
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+func (s *UserService) Login(ctx context.Context, req LoginRequest) (*domain.User, error) {
+	user, err := s.userRepo.FindByEmail(ctx, req.Email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find user by email: %w", err)
+	}
+	if user == nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	if !user.VerifyPassword(req.Password) {
+		return nil, ErrInvalidCredentials
+	}
+
+	return user, nil
+}
